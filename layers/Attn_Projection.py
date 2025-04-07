@@ -16,21 +16,56 @@ class Projection(nn.Module, abc.ABC):
 
 
 class RotaryProjection(Projection):
-    def __init__(self, *, proj_width: int, num_heads: int, max_len: int = 512, base: int = 10000):
+    def __init__(self, *, proj_width: int, num_heads: int, max_len: int = 100, base: int = 10000, duration: int = 60 * 60 * 96, patch_mark: torch.Tensor = None):
         super().__init__(proj_width, num_heads)
         assert (
             self.proj_width % 2 == 0
         ), f"proj_width must be even, got {self.proj_width}"
+        
+        self.duration = duration
+        self.D = 2 * torch.pi * self.duration
+        
+        self.anchors = [1, 60, 60*60, 60*60*24, 60*60*24*7, 60*60*24*30, 60*60*24*365] 
+        self.base_list = [(self.anchors[i+1] // self.anchors[i]) for i in range(len(self.anchors) -1)] # 6
+        
+        self.num_segment = len(self.base_list) # 6
+        self.num_clocks = proj_width // 2 # 32
+        
+        # TODO
+        self.clock_list = [self.num_clocks // self.num_segment] * self.num_segment # 6
+        reminder = self.num_clocks % self.num_segment
+        for i in range(reminder):
+            self.clock_list[i] += 1
+            
+        self.clock_list = [self.clock_list[i] * 2 for i in range(self.num_segment)]
+        self.theta_list = []
+        for i in range(self.num_segment):
+            self.theta_list.append(
+                (self.D / self.anchors[i])
+                / torch.pow(
+                    self.base_list[i],
+                    torch.arange(0, self.clock_list[i], 2, dtype=torch.float)
+                    / self.clock_list[i],
+                )
+            )
+            # print(f'base_list[{i}]', self.base_list[i])
+            # print(f'{self.clock_list[i]}', self.theta_list[i].shape)
+            # print(self.theta_list[i])
         self.register_buffer(
             "theta",
-            1.0
-            / torch.pow(
-                base,
-                torch.arange(0, self.proj_width, 2, dtype=torch.float)
-                / self.proj_width,
-            ),
+            torch.cat(self.theta_list, dim=0),
             persistent=False,
         )
+        # self.register_buffer(
+        #     "theta",
+        #     1.0
+        #     / torch.pow(
+        #         base,
+        #         torch.arange(0, self.proj_width, 2, dtype=torch.float)
+        #         / self.proj_width,
+        #     ),
+        #     persistent=False,
+        # )
         self.register_buffer("cos", None, persistent=False)
         self.register_buffer("sin", None, persistent=False)
         self._init_freq(max_len=max_len)
@@ -46,15 +81,37 @@ class RotaryProjection(Projection):
             self.register_buffer("cos", torch.cos(m_theta), persistent=False)
             self.register_buffer("sin", torch.sin(m_theta), persistent=False)
 
+    def _init_freq_timerope(self, patch_mark: torch.Tensor):
+        # [B N]
+        m_theta = einsum(patch_mark, self.theta,
+                    "B length, width -> B length width") # [B N dim/2]
+        m_theta = repeat(m_theta, "B length width -> B length (width 2)") # [B N dim]
+        self.register_buffer("cos", torch.cos(m_theta), persistent=False)
+        self.register_buffer("sin", torch.sin(m_theta), persistent=False)
+
     @staticmethod
     def _rotate(x):
         x1, x2 = rearrange(x, "... (dim r) -> r ... dim", r=2)
         return rearrange([-x2, x1], "r ... dim -> ... (dim r)", r=2)  # noqa
 
-    def forward(self, x, seq_id):
-        self._init_freq(max_len=seq_id.max() + 1)
-        rot_cos = self.cos[seq_id]
-        rot_sin = self.sin[seq_id]
+    def forward(self, x, seq_id, patch_mark=None):
+        # # [B H L E]
+        # self._init_freq(max_len=seq_id.max() + 1)
+        # rot_cos = self.cos[seq_id]
+        # print("rot_cos", self.cos.shape) # [max_len dim]
+        # print("seq_id", seq_id.shape) # [B H N]
+        # print("cos", rot_cos.shape) # [B H N dim]
+        # print('x', x.shape) # [B H N dim]
+        # rot_sin = self.sin[seq_id]
+        # return rot_cos * x + rot_sin * self._rotate(x)
+        # print('patch_mark', patch_mark.shape) # [B N]
+        _, H, _, _ = x.shape
+        self._init_freq_timerope(patch_mark=patch_mark)
+        rot_cos = self.cos.unsqueeze(1).repeat(1, H, 1, 1)
+        rot_sin = self.sin.unsqueeze(1).repeat(1, H, 1, 1)
+        # print("rot_cos", self.cos.shape) # [max_len dim]
+        # print("seq_id", seq_id.shape) # [B H N]
+        # print('x', x.shape) # [B H N dim]
         return rot_cos * x + rot_sin * self._rotate(x)
 
 
@@ -92,15 +149,15 @@ class QueryKeyProjection(nn.Module):
             int((1.0 - self.partial_factor[1]) * self.head_dim),
         )
 
-    def forward(self, query, key, query_id, kv_id):
+    def forward(self, query, key, query_id, kv_id, patch_mark=None):
         if self.partial_factor is not None:
             queries = list(query.split(self.split_sizes, dim=-1))
             keys = list(key.split(self.split_sizes, dim=-1))
-            queries[1] = self.query_proj(queries[1], seq_id=query_id)
-            keys[1] = self.key_proj(keys[1], seq_id=kv_id)
+            queries[1] = self.query_proj(queries[1], seq_id=query_id, patch_mark=patch_mark)
+            keys[1] = self.key_proj(keys[1], seq_id=kv_id, patch_mark=patch_mark)
             query = torch.cat(queries, dim=-1)
             key = torch.cat(keys, dim=-1)
         else:
-            query = self.query_proj(query, seq_id=query_id)
-            key = self.key_proj(key, seq_id=kv_id)
+            query = self.query_proj(query, seq_id=query_id, patch_mark=patch_mark)
+            key = self.key_proj(key, seq_id=kv_id, patch_mark=patch_mark)
         return query, key

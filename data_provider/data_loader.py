@@ -190,6 +190,11 @@ class MultivariateDatasetBenchmark(Dataset):
         else:
             raise ValueError('Unknown data format: {}'.format(dataset_file_path))
 
+        # add index
+        self.data_index = df_raw.index
+        self.data_index = self.data_index.to_numpy()
+        self.data_index = torch.tensor(self.data_index, dtype=torch.int64)
+        
         if self.data_type == 'ETTh' or self.data_type == 'ETTh1' or self.data_type == 'ETTh2':
             border1s = [0, 12 * 30 * 24 - self.seq_len, 12 * 30 * 24 + 4 * 30 * 24 - self.seq_len]
             border2s = [12 * 30 * 24, 12 * 30 * 24 + 4 * 30 * 24, 12 * 30 * 24 + 8 * 30 * 24]
@@ -222,6 +227,7 @@ class MultivariateDatasetBenchmark(Dataset):
         
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
+        self.data_index = self.data_index[border1:border2]
         
         self.n_var = self.data_x.shape[-1]
         self.n_timepoint =  len(self.data_x) - self.seq_len - self.output_token_len + 1
@@ -255,17 +261,23 @@ class MultivariateDatasetBenchmark(Dataset):
             seq_y = seq_y.unfold(dimension=0, size=self.output_token_len,
                                 step=self.input_token_len).permute(0, 2, 1)
             seq_y = seq_y.reshape(seq_y.shape[0] * seq_y.shape[1], -1)
+            seq_y_mark = self.data_index[r_begin:r_end].unsqueeze(1)
+            seq_y_mark = seq_y_mark.unfold(dimension=0, size=self.output_token_len,
+                                            step=self.input_token_len).permute(0, 2, 1)
+            seq_y_mark = seq_y_mark.reshape(seq_y_mark.shape[0] * seq_y_mark.shape[1], -1)
         else:
             r_begin = s_end
             r_end = r_begin + self.output_token_len
             seq_x = self.data_x[s_begin:s_end]
             seq_y = self.data_y[r_begin:r_end]
-        seq_x_mark = torch.zeros((seq_x.shape[0], 1))
-        seq_y_mark = torch.zeros((seq_x.shape[0], 1))
+            seq_y_mark = self.data_index[r_begin:r_end].unsqueeze(1)
+        # seq_x_mark = torch.zeros((seq_x.shape[0], 1))
+        # seq_y_mark = torch.zeros((seq_x.shape[0], 1))
         
         if self.data_stamp is not None:
             seq_x_mark = torch.tensor(self.data_stamp[s_begin:s_end])
-            
+        
+        seq_x_mark = self.data_index[s_begin:s_end].unsqueeze(1)
         return seq_x, seq_y, seq_x_mark, seq_y_mark
     
     def __len__(self):

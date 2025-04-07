@@ -35,6 +35,7 @@ class Exp_Forecast(Exp_Basic):
             model = DataParallel(model, device_ids=self.args.device_ids).to(self.device)
         else:
             self.device = self.args.gpu
+            self.device = 'cpu'
             model = model.to(self.device)
             
         if self.args.adaptation:
