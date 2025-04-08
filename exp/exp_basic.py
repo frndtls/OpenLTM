@@ -1,4 +1,4 @@
-from models import timer, timer_xl, moirai, moment, gpt4ts, ttm, time_llm, autotimes, timerope
+from models import timer, timer_xl, moirai, moment, gpt4ts, ttm, time_llm, autotimes, timerope, timer_rope, timer_timerope, timer_wo_pe, moment_rope, moment_timerope, moment_wo_pe
 
 
 class Exp_Basic(object):
@@ -14,6 +14,12 @@ class Exp_Basic(object):
             "time_llm": time_llm,
             "autotimes": autotimes,
             "timerope": timerope,
+            "timer_rope": timer_rope,
+            "timer_timerope": timer_timerope,
+            "timer_wo_pe": timer_wo_pe,
+            "moment_rope": moment_rope,
+            "moment_timerope": moment_timerope,
+            "moment_wo_pe": moment_wo_pe,
         }
         self.model = self._build_model()
 

@@ -4,7 +4,7 @@ import numpy as np
 from math import sqrt
 from einops import repeat
 from layers.Attn_Bias import BinaryAttentionBias
-from layers.Attn_Projection import QueryKeyProjection, RotaryProjection
+from layers.Attn_Projection import QueryKeyProjection, RotaryProjection, TimeRotaryProjection
 from utils.masking import TriangularCausalMask, TimerMultivariateMask, TimerCovariateMask
 
 
@@ -16,7 +16,7 @@ class FullAttention(nn.Module):
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
 
-    def forward(self, queries, keys, values, attn_mask, n_vars=None, n_tokens=None, tau=None, delta=None):
+    def forward(self, queries, keys, values, attn_mask, n_vars=None, n_tokens=None, tau=None, delta=None, patch_mark=None):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
         scale = self.scale or 1. / sqrt(E)
@@ -61,7 +61,7 @@ class TimeAttention(nn.Module):
         if self.flash_attention:
             values = values.permute(0, 2, 1, 3)
 
-        seq_id = torch.arange(n_tokens * n_vars)
+        seq_id = torch.arange(n_tokens)
         seq_id = repeat(seq_id, 'n -> b h n', b=B, h=H)
 
         queries, keys = self.qk_proj(
@@ -144,7 +144,7 @@ class AttentionLayer(nn.Module):
 
 
 class TimeRoPEAttention(nn.Module):
-    def __init__(self, mask_flag=True, scale=None, attention_dropout=0.1, output_attention=False, d_model=512, num_heads=8, max_len=100, covariate=False, flash_attention=False, duration=None):
+    def __init__(self, proj_layer,mask_flag=True, scale=None, attention_dropout=0.1, output_attention=False, d_model=512, num_heads=8, max_len=100, covariate=False, flash_attention=False, duration=None, abs_index: bool = False, anchor_list=None, clock_list=None):
         super(TimeRoPEAttention, self).__init__()
         self.scale = scale
         self.mask_flag = mask_flag
@@ -152,7 +152,7 @@ class TimeRoPEAttention(nn.Module):
         self.dropout = nn.Dropout(attention_dropout)
         self.covariate = covariate
         self.flash_attention = flash_attention
-        self.qk_proj = QueryKeyProjection(dim=d_model, num_heads=num_heads, proj_layer=RotaryProjection, kwargs=dict(max_len=max_len, duration=duration),
+        self.qk_proj = QueryKeyProjection(dim=d_model, num_heads=num_heads, proj_layer=proj_layer, kwargs=dict(max_len=max_len, duration=duration, anchor_list=anchor_list, clock_list=clock_list, abs_index=abs_index) if proj_layer == TimeRotaryProjection else dict(max_len=max_len),
                                           partial_factor=(0.0, 0.5),)
         self.attn_bias = BinaryAttentionBias(dim=d_model, num_heads=num_heads)
 

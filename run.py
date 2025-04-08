@@ -104,7 +104,20 @@ if __name__ == '__main__':
     # AutoTimes
     parser.add_argument("--mix_embeds", action="store_true", help="load time stamp embedding from file, mix time series and textual embeddings of time stamp", default=False)
     
+    
+    # TimeRoPE
+    parser.add_argument("--duration", type=int, default=60*60, help="duration of time stamp")
+    parser.add_argument("--use_abs_index", action="store_true", default=False)
+    parser.add_argument("--anchor_list", nargs='+', type=int, default=[1, 60, 60*60, 60*60*24, 60*60*24*7, 60*60*24*30, 60*60*24*365], help="anchors list")
+    parser.add_argument("--clock_list", nargs='+', type=int, default=[12, 12, 10, 10, 10, 10]) # sum of clock_list = d_model / / partial_factor / n_heads // 2
+    
+    parser.add_argument("--partial_variate", type=float, default=0)
+    
     args = parser.parse_args()
+    
+    print('anchor_list:', args.anchor_list)
+    print('clock_list:', args.clock_list)
+    
     fix_seed = args.seed
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
@@ -139,7 +152,7 @@ if __name__ == '__main__':
         for ii in range(args.itr):
             # setting record of experiments
             exp = Exp(args)  # set experiments
-            setting = '{}_{}_{}_{}_sl{}_it{}_ot{}_lr{}_bt{}_wd{}_el{}_dm{}_dff{}_nh{}_cos{}_{}_{}'.format(
+            setting = '{}_{}_{}_{}_sl{}_it{}_ot{}_lr{}_bt{}_wd{}_el{}_dm{}_dff{}_nh{}_cos{}_{}_{}_du{}_abs{}_partial{}'.format(
                 args.task_name,
                 args.model_id,
                 args.model,
@@ -155,16 +168,21 @@ if __name__ == '__main__':
                 args.d_ff,
                 args.n_heads,
                 args.cosine,
-                args.des, ii)
+                args.des, ii,
+                args.duration,
+                args.use_abs_index,
+                args.partial_variate,
+                )
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
             exp.train(setting)
             print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
             if not args.ddp and not args.dp:
-                exp.test(setting)
+                # exp.test(setting)
+                pass
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_{}_sl{}_it{}_ot{}_lr{}_bt{}_wd{}_el{}_dm{}_dff{}_nh{}_cos{}_{}_{}'.format(
+        setting = '{}_{}_{}_{}_sl{}_it{}_ot{}_lr{}_bt{}_wd{}_el{}_dm{}_dff{}_nh{}_cos{}_{}_{}_du{}_abs{}_partial{}'.format(
             args.task_name,
             args.model_id,
             args.model,
@@ -180,7 +198,11 @@ if __name__ == '__main__':
             args.d_ff,
             args.n_heads,
             args.cosine,
-            args.des, ii)
+            args.des, ii,
+            args.duration,
+            args.use_abs_index,
+            args.partial_variate,
+        )
         exp = Exp(args)  # set experiments
         exp.test(setting, test=1)
         torch.cuda.empty_cache()

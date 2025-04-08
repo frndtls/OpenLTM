@@ -35,7 +35,6 @@ class Exp_Forecast(Exp_Basic):
             model = DataParallel(model, device_ids=self.args.device_ids).to(self.device)
         else:
             self.device = self.args.gpu
-            self.device = 'cpu'
             model = model.to(self.device)
             
         if self.args.adaptation:
@@ -152,7 +151,13 @@ class Exp_Forecast(Exp_Basic):
                 batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
-
+                
+                if self.args.partial_variate != 0: # 使用部分变量训练
+                    RATIO = self.args.partial_variate
+                    M = int(batch_x.shape[-1] * RATIO) 
+                    batch_x = batch_x[:, :, M:]
+                    batch_y = batch_y[:, :, M:]
+                    
                 outputs = self.model(batch_x, batch_x_mark, batch_y_mark)
                 if self.args.dp:
                     torch.cuda.synchronize()
